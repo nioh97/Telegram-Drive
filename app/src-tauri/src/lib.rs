@@ -62,6 +62,9 @@ pub mod jni_cache;
 pub mod transcode;
 pub mod fmp4_remux;
 pub mod mp4_utils;
+pub mod backup_tracking;
+pub mod backup_queue;
+pub mod backup;
 
 
 /// Single source of truth for the Actix streaming server port.
@@ -191,10 +194,15 @@ pub fn restart_api_server(_app: &tauri::AppHandle) {
     log::info!("REST API disabled on mobile.");
 }
 
+pub static NDK_INITIALIZED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[tauri::command]
 fn cmd_open_file_externally(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "android")]
     {
+        if !NDK_INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("App is still initializing, please try again".to_string());
+        }
         let ctx = ndk_context::android_context();
         let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
             .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
@@ -258,6 +266,9 @@ fn cmd_open_file_externally(path: String, app_handle: tauri::AppHandle) -> Resul
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn cmd_get_pending_share_count() -> Result<i32, String> {
+    if !NDK_INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(0);
+    }
     let ctx = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
         .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
@@ -297,6 +308,9 @@ struct CachedFileEntry {
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn cmd_list_cached_files() -> Result<Vec<CachedFileEntry>, String> {
+    if !NDK_INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(Vec::new());
+    }
     let ctx = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
         .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
@@ -337,6 +351,9 @@ fn cmd_list_cached_files() -> Result<Vec<CachedFileEntry>, String> {
 #[cfg(target_os = "android")]
 #[tauri::command]
 fn cmd_remove_cached_path(uri: String) -> Result<(), String> {
+    if !NDK_INITIALIZED.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok(());
+    }
     let ctx = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
         .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
@@ -424,6 +441,9 @@ fn cmd_get_system_diagnostics(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
+    
+    // Initialize rustls ring crypto provider to prevent reqwest panics
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
     let stream_token = generate_stream_token();
 
@@ -477,6 +497,7 @@ pub fn run() {
                                             context.as_raw().cast(),
                                         );
                                     }
+                                    NDK_INITIALIZED.store(true, std::sync::atomic::Ordering::SeqCst);
                                     log::info!("JNI: Successfully initialized ndk-context globally.");
                                 } else {
                                     log::error!("JNI: Failed to get JavaVM from JNIEnv");
@@ -564,6 +585,7 @@ pub fn run() {
             let transcode_arc = Arc::new(transcode_manager);
             app.manage(transcode_arc.clone());
             app.manage(fmp4_remux::Fmp4RemuxState::new());
+            app.manage(backup_queue::BackupQueueState::new());
             let loaded_config = vpn_optimizer::load_network_config(app.handle());
             let net_config = Arc::new(vpn_optimizer::NetworkConfig::new_with_config(loaded_config));
             app.manage(net_config.clone());
@@ -610,6 +632,9 @@ pub fn run() {
 
             // Start API server if enabled in settings
             restart_api_server(app.handle());
+
+            // Initialize background backup worker
+            crate::backup::init_backup_worker(app.handle().clone(), db_pool.clone());
 
             // Start VPN keep-alive background task
             // Disabled on Android: unnecessary on mobile and spawn_blocking may
@@ -712,14 +737,20 @@ pub fn run() {
             transcode::cmd_cancel_transcode,
             transcode::cmd_get_master_playlist_info,
             transcode::cmd_get_transcode_cache_info,
-            transcode::cmd_set_transcode_cache_limit,
             transcode::cmd_get_cached_variants,
             transcode::cmd_get_detailed_transcode_cache,
             transcode::cmd_clear_transcode_cache,
+            transcode::cmd_set_transcode_cache_limit,
+            backup::cmd_get_backup_preferences,
+            backup::cmd_set_backup_preferences,
             fmp4_remux::cmd_prepare_fmp4_stream,
             fmp4_remux::cmd_get_fmp4_status,
             commands::cmd_list_archive_contents,
             commands::cmd_extract_archive_entry,
+            backup_queue::cmd_enqueue_backup,
+            backup_queue::cmd_get_backup_queue,
+            backup_queue::cmd_pause_backup,
+            backup_queue::cmd_resume_backup,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

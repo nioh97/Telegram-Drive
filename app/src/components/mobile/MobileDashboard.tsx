@@ -13,6 +13,8 @@ import AdsterraBanner from '../shared/AdsterraBanner';
 import { ActionPopover, ActionItem } from './ActionPopover';
 import { ShareDialog } from '../desktop/dashboard/ShareDialog';
 import { RenameFolderSheet } from './RenameFolderSheet';
+import { BackupSettings } from './BackupSettings';
+import { BackupProgress } from './BackupProgress';
 import { usePlatform } from '../../hooks/usePlatform';
 import { useTelegramConnection } from '../../hooks/useTelegramConnection';
 import { useFileUpload } from '../../hooks/useFileUpload';
@@ -518,6 +520,9 @@ export default function MobileDashboard({ onLogout }: { onLogout?: () => void })
 
         {activeTab === 'settings' && (
           <div className="space-y-4">
+            {isAndroid && <BackupProgress />}
+            {isAndroid && <BackupSettings folders={folders} activeFolderId={activeFolderId} />}
+
             <div className="p-4 rounded-2xl bg-telegram-hover/20 border border-telegram-border/30 space-y-4">
               <h3 className="text-sm font-bold text-telegram-primary tracking-wide uppercase text-[10px]">{t('common.preferences')}</h3>
               <div className="flex items-center justify-between py-2 border-b border-telegram-border/20">

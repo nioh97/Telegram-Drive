@@ -61,7 +61,30 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
                     expires_at INTEGER,
                     revoked INTEGER NOT NULL DEFAULT 0,
                     created_at INTEGER NOT NULL
-                )"
+                );
+                DROP TABLE IF EXISTS uploaded_media;
+                CREATE TABLE IF NOT EXISTS upload_queue (
+                    id TEXT PRIMARY KEY,
+                    media_store_id TEXT UNIQUE,
+                    uri TEXT,
+                    path TEXT,
+                    mime_type TEXT,
+                    size INTEGER,
+                    date_added INTEGER,
+                    priority INTEGER,
+                    status TEXT,
+                    bytes_uploaded INTEGER DEFAULT 0,
+                    total_bytes INTEGER DEFAULT 0,
+                    last_attempt INTEGER,
+                    retry_count INTEGER DEFAULT 0,
+                    telegram_message_id INTEGER,
+                    telegram_file_id TEXT,
+                    chat_id INTEGER
+                );
+                CREATE TABLE IF NOT EXISTS backup_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                );"
             ) {
                 Ok(_) => {
                     last_err.clear();

@@ -59,8 +59,9 @@ walkdir = "2"
 sqlite = { version = "0.37.0", features = ["bundled"] }
 mp4parse = "0.17"
 urlencoding = "2"
-reqwest = { version = "0.12", features = ["stream", "rustls-tls", "socks"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls", "socks", "charset", "http2"] }
 sysinfo = "0.30"
+rustls = { version = "0.23", features = ["ring"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
